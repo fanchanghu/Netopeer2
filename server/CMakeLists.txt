@@ -89,6 +89,17 @@ else()
     message(STATUS "pkg-config not found, so it was not possible to check if libnetconf2 supports ${THREAD_COUNT} threads")
 endif()
 
+# plugin file
+if(PLUGIN_FILE)
+	set(NP2SRV_EXT_PLUGIN_FILE ${PLUGIN_FILE})
+else()
+    if(APPLE)
+        set(NP2SRV_EXT_PLUGIN_FILE ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/netopeer2/plugin.dylib)
+    else()
+        set(NP2SRV_EXT_PLUGIN_FILE ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/netopeer2/plugin.so)
+    endif()
+endif()
+
 # source files
 set(srcs
     ietf_netconf_server.c
@@ -105,6 +116,7 @@ set(srcs
     op_un_lock.c
     op_generic.c
     op_notifications.c
+    np_plugin.c
     log.c)
 
 # object library to build source codes only once for the main binary
@@ -112,6 +124,9 @@ add_library(serverobj OBJECT ${srcs})
 
 # netopeer2-server target
 add_executable(netopeer2-server $<TARGET_OBJECTS:serverobj> main.c)
+
+# dl
+target_link_libraries(netopeer2-server dl)
 
 # dependencies - pthread
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
@@ -148,6 +163,9 @@ include_directories(${SYSREPO_INCLUDE_DIRS})
 
 # install binary
 install(TARGETS netopeer2-server DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# install headers
+install(FILES np_server.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 # only for configuration
 if (ENABLE_CONFIGURATION)

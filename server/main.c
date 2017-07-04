@@ -39,6 +39,7 @@
 #include "common.h"
 #include "operations.h"
 #include "netconf_monitoring.h"
+#include "np_plugin.h"
 
 #include "../modules/ietf-netconf@2011-06-01.h"
 #include "../modules/ietf-netconf-monitoring.h"
@@ -852,6 +853,12 @@ server_init(void)
     int rc;
     const struct lys_node *snode;
     const struct lys_module *mod;
+
+    rc = np_load_ec_plugin();
+    if (rc) {
+        ERR("Unable to load ec plugin.");
+        return EXIT_FAILURE;
+    }
 
     /* connect to the sysrepo */
     rc = sr_connect("netopeer2", SR_CONN_DAEMON_REQUIRED | SR_CONN_DAEMON_START, &np2srv.sr_conn);

@@ -27,6 +27,7 @@
 
 #include "common.h"
 #include "operations.h"
+#include "np_plugin.h"
 
 static enum NP2_EDIT_OP
 edit_get_op(struct lyd_node *node, enum NP2_EDIT_OP parentop, enum NP2_EDIT_DEFOP defop)
@@ -186,6 +187,8 @@ op_editconfig(struct lyd_node *rpc, struct nc_session *ncs)
     int op_index, op_size, path_index = 0, missing_keys = 0, lastkey = 0, np_cont;
     int ret, path_len, new_len;
     struct lyd_node_anydata *any;
+    struct np_ec_plugin *ec_plugin = NULL;
+    struct np_ec_clb_ctx *ec_ctx = NULL;
 
     /* init */
     path_len = 128;
@@ -316,6 +319,22 @@ op_editconfig(struct lyd_node *rpc, struct nc_session *ncs)
         }
     }
 
+    /* call plugin's before clb */
+    ec_plugin = np_get_ec_plugin();
+    if (ec_plugin) {
+        ec_ctx = np_new_ec_clb_ctx(EDIT_CONFIG, np2srv.ly_ctx, ncs, sessions->srs, ds);
+        if (!ec_ctx) {
+            goto internalerror;
+        }
+
+        if(ec_plugin->before_clb) {
+            ret = (*ec_plugin->before_clb)(ec_ctx, config);
+            if(ret) {
+                goto internalerror;
+            }
+        }
+    }
+
     /*
      * data manipulation
      */
@@ -327,6 +346,15 @@ op_editconfig(struct lyd_node *rpc, struct nc_session *ncs)
     path_levels = malloc(path_levels_size * sizeof *path_levels);
     path_levels_index = 0;
     LY_TREE_DFS_BEGIN(config, next, iter) {
+        /* call plugin's node clb */
+        if (ec_plugin) {
+            if(ec_plugin->node_clb) {
+                ret = (*ec_plugin->node_clb)(ec_ctx, iter);
+                if(ret) {
+                    goto internalerror;
+                }
+            }
+        }
 
         /* maintain list of operations */
         if (!missing_keys) {
@@ -639,7 +667,15 @@ dfs_parent:
     }
 
 cleanup:
+    /* call plugin's after clb */
+    if (ec_plugin && ec_ctx) {
+        if (ec_plugin->after_clb) {
+            (*ec_plugin->after_clb)(ec_ctx);
+        }
+    }
     /* cleanup */
+    free(ec_ctx);
+    ec_ctx = NULL;
     free(path);
     path = NULL;
     free(op);
@@ -692,11 +728,19 @@ internalerror:
         ereply = nc_server_reply_err(e);
     }
 
+    /* call plugin's after clb */
+    if (ec_plugin && ec_ctx) {
+        if (ec_plugin->after_clb) {
+            (*ec_plugin->after_clb)(ec_ctx);
+        }
+    }
+
     /* fatal error, so continue-on-error does not apply here,
      * instead we rollback */
     DBG("EDIT_CONFIG: fatal error, rolling back.");
     sr_discard_changes(sessions->srs);
 
+    free(ec_ctx);
     free(path);
     free(op);
     free(path_levels);

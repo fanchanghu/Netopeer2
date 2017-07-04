@@ -34,6 +34,10 @@
 #   define NP2SRV_KEYSTORED_DIR "@KEYSTORED_KEYS_DIR@"
 #endif
 
+/** @brief keystored default directory
+ */
+#define NP2SRV_PLUGIN_FILE "@NP2SRV_EXT_PLUGIN_FILE@"
+
 /** @brief Maximum number of threads handling session requests
  */
 #ifndef NP2SRV_THREAD_COUNT
