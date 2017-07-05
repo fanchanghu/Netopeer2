@@ -1309,6 +1309,8 @@ cleanup:
     /* libyang cleanup */
     ly_ctx_destroy(np2srv.ly_ctx, NULL);
 
+    np_clean_ec_plugin();
+
     /* are we requested to stop or just to restart? */
     if (control == LOOP_RESTART) {
         goto restart;

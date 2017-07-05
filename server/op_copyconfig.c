@@ -27,6 +27,7 @@
 
 #include "common.h"
 #include "operations.h"
+#include "np_plugin.h"
 
 struct nc_server_reply *
 op_copyconfig(struct lyd_node *rpc, struct nc_session *ncs)
@@ -42,6 +43,8 @@ op_copyconfig(struct lyd_node *rpc, struct nc_session *ncs)
     struct nc_server_error *e = NULL;
     int rc = SR_ERR_OK, path_index = 0, missing_keys = 0, lastkey = 0;
     unsigned int i;
+    struct np_ec_plugin *ec_plugin = NULL;
+    struct np_ec_clb_ctx *ec_ctx = NULL;
 
     /* get sysrepo connections for this session */
     sessions = (struct np2_sessions *)nc_session_get_data(ncs);
@@ -129,6 +132,22 @@ op_copyconfig(struct lyd_node *rpc, struct nc_session *ncs)
         }
         ly_set_free(nodeset);
 
+        /* call plugin's before clb */
+        ec_plugin = np_get_ec_plugin();
+        if (ec_plugin) {
+            ec_ctx = np_new_ec_clb_ctx(COPY_CONFIG, np2srv.ly_ctx, ncs, sessions->srs, target);
+            if (!ec_ctx) {
+                goto error;
+            }
+
+            if(ec_plugin->before_clb) {
+                rc = (*ec_plugin->before_clb)(ec_ctx, config);
+                if(rc) {
+                    goto error;
+                }
+            }
+        }
+
         /* and copy <config>'s content into sysrepo */
         LY_TREE_DFS_BEGIN(config, next, iter) {
             /* maintain path */
@@ -147,6 +166,17 @@ op_copyconfig(struct lyd_node *rpc, struct nc_session *ncs)
 
             /* specific handling for different types of nodes */
             lastkey = 0;
+
+            /* call plugin's node clb */
+            if (ec_plugin) {
+                if(ec_plugin->node_clb) {
+                    rc = (*ec_plugin->node_clb)(ec_ctx, iter);
+                    if(rc) {
+                        goto error;
+                    }
+                }
+            }
+
             switch(iter->schema->nodetype) {
             case LYS_CONTAINER:
                 if (!((struct lys_node_container *)iter->schema)->presence) {
@@ -279,7 +309,15 @@ dfs_continue:
 
     if (rc != SR_ERR_OK) {
 srerror:
+        /* call plugin's after clb */
+        if (ec_plugin && ec_ctx) {
+            if (ec_plugin->after_clb) {
+                (*ec_plugin->after_clb)(ec_ctx);
+            }
+        }
+
         /* cleanup */
+        free(ec_ctx);
         lyd_free_withsiblings(config);
 
         /* handle error */
@@ -300,12 +338,28 @@ srerror:
         sessions->flags |= NP2S_CAND_CHANGED;
     }
 
+    /* call plugin's after clb */
+    if (ec_plugin && ec_ctx) {
+        if (ec_plugin->after_clb) {
+            (*ec_plugin->after_clb)(ec_ctx);
+        }
+    }
+
     /* cleanup */
+    free(ec_ctx);
     lyd_free_withsiblings(config);
 
     return nc_server_reply_ok();
 
 error:
+    /* call plugin's after clb */
+    if (ec_plugin && ec_ctx) {
+        if (ec_plugin->after_clb) {
+            (*ec_plugin->after_clb)(ec_ctx);
+        }
+    }
+
+    free(ec_ctx);
     lyd_free_withsiblings(config);
     e = nc_err(NC_ERR_OP_FAILED, NC_ERR_TYPE_APP);
     nc_err_set_msg(e, np2log_lasterr(), "en");
